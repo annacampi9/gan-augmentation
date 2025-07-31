@@ -1,0 +1,8 @@
+torch
+torchvision
+timm
+albumentations
+foolbox
+matplotlib
+seaborn
+scikit-learn
