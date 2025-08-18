@@ -1,8 +1,9 @@
-torch
-torchvision
 timm
 albumentations
 foolbox
 matplotlib
 seaborn
 scikit-learn
+tensorflow
+tensorflow-addons
+matplotlib
