@@ -1,10 +1,58 @@
+# Python cache
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+env/
+venv/
+ENV/
+*.env
+*.venv
+
+# OS junk
 .DS_Store
+Thumbs.db
+
+# Jupyter Notebook checkpoints
 .ipynb_checkpoints/
-*.pt
-*.h5
+
+# Logs and temp files
 *.log
-data/
-experiments/
+logs/
+*.out
+*.err
+*.tmp
+
+# Model weights & checkpoints
+models/
+*.h5
+*.ckpt
+*.ckpt.*
+*.pth
+*.pt
+*.npz
+
+# Training results & figures
+results/
+figures/
 saved_data/
+
+# TensorBoard
+events.out.tfevents*
+tensorboard/
+
+# Datasets (keep only download scripts, not actual data)
+data/
+cifar10_data/
+svhn_data/
+*.tar.gz
+*.zip
+*.npz
+
+# Colab & Google Drive sync files
+*.ipynb.json
+*.ipynb_checkpoints/
+*.colab
