@@ -1,8 +1,18 @@
+"""DADA generator model (32x32) with class-conditional concatenations.
+
+Shapes: 4x4 -> 8x8 -> 16x16 -> 32x32 with label maps concatenated at each stage.
+"""
+
+from __future__ import annotations
+
 import tensorflow as tf
-from weightnorm_wrapper import WeightNorm
+
+from .weightnorm_wrapper import WeightNorm
 
 
-def broadcast_labels_to_feature_maps(one_hot_labels: tf.Tensor, height: int, width: int) -> tf.Tensor:
+def broadcast_labels_to_feature_maps(
+    one_hot_labels: tf.Tensor, height: int, width: int
+) -> tf.Tensor:
     one_hot_labels = tf.cast(one_hot_labels, tf.float32)
     y = tf.reshape(one_hot_labels, (-1, one_hot_labels.shape[-1], 1, 1))
     y = tf.tile(y, multiples=(1, 1, height, width))
@@ -11,7 +21,27 @@ def broadcast_labels_to_feature_maps(one_hot_labels: tf.Tensor, height: int, wid
 
 
 class DADAGenerator(tf.keras.Model):
-    def __init__(self, num_classes: int, noise_dim: int = 100, weight_norm_all: bool = False, name: str = "DADAGenerator"):
+    """Class-conditional generator producing 32x32x3 outputs.
+
+    Parameters
+    ----------
+    num_classes : int
+        Number of classes.
+    noise_dim : int, default=100
+        Latent noise dimension.
+    weight_norm_all : bool, default=False
+        If True, wrap eligible layers with `WeightNorm`.
+    name : str
+        Keras model name.
+    """
+
+    def __init__(
+        self,
+        num_classes: int,
+        noise_dim: int = 100,
+        weight_norm_all: bool = False,
+        name: str = "DADAGenerator",
+    ):
         super().__init__(name=name)
         self.num_classes = num_classes
         self.noise_dim = noise_dim
@@ -25,16 +55,25 @@ class DADAGenerator(tf.keras.Model):
             return WeightNorm(layer) if weight_norm_all else layer
 
         # 4x4x512 -> 8x8x256
-        self.deconv1 = maybe_wn(tf.keras.layers.Conv2DTranspose(256, kernel_size=5, strides=2, padding="same", activation=None, use_bias=False))
+        self.deconv1 = maybe_wn(
+            tf.keras.layers.Conv2DTranspose(
+                256, kernel_size=5, strides=2, padding="same", activation=None, use_bias=False
+            )
+        )
         self.bn1 = tf.keras.layers.BatchNormalization()
 
         # 8x8x(256+C) -> 16x16x128
-        self.deconv2 = maybe_wn(tf.keras.layers.Conv2DTranspose(128, kernel_size=5, strides=2, padding="same", activation=None, use_bias=False))
+        self.deconv2 = maybe_wn(
+            tf.keras.layers.Conv2DTranspose(
+                128, kernel_size=5, strides=2, padding="same", activation=None, use_bias=False
+            )
+        )
         self.bn2 = tf.keras.layers.BatchNormalization()
 
         # 16x16x(128+C) -> 32x32x3
-        last_conv = tf.keras.layers.Conv2DTranspose(3, kernel_size=5, strides=2, padding="same", activation=None)
-        # Apply weight norm on last layer as in original
+        last_conv = tf.keras.layers.Conv2DTranspose(
+            3, kernel_size=5, strides=2, padding="same", activation=None
+        )
         self.deconv3 = WeightNorm(last_conv)
 
         self.act_relu = tf.keras.layers.ReLU()
@@ -81,7 +120,9 @@ class DADAGenerator(tf.keras.Model):
         return x
 
     @tf.function
-    def sample(self, y: tf.Tensor, z: tf.Tensor | None = None, batch_size: int | None = None) -> tf.Tensor:
+    def sample(
+        self, y: tf.Tensor, z: tf.Tensor | None = None, batch_size: int | None = None
+    ) -> tf.Tensor:
         if z is None:
             if batch_size is None:
                 batch_size = tf.shape(y)[0]

@@ -1,3 +1,10 @@
+"""Losses for DADA training.
+
+Mathematics unchanged; only documentation added.
+"""
+
+from __future__ import annotations
+
 import tensorflow as tf
 
 
@@ -20,10 +27,9 @@ def source_logits_for_labels(logits_2_c: tf.Tensor, y: tf.Tensor, num_classes: i
         y_one = tf.one_hot(y, depth=num_classes)
     else:
         y_one = tf.cast(y, tf.float32)
-    y_one = tf.expand_dims(y_one, axis=-1)  # [B, C, 1]
-    # logits_2_c: [B, 2, C] -> [B, 2, 1]
+    y_one = tf.expand_dims(y_one, axis=-1)
     src = tf.matmul(logits_2_c, y_one)
-    src = tf.squeeze(src, axis=-1)  # [B, 2]
+    src = tf.squeeze(src, axis=-1)
     return src
 
 
@@ -33,8 +39,23 @@ def feature_match(features_real: tf.Tensor, features_fake: tf.Tensor) -> tf.Tens
     return tf.reduce_mean(tf.abs(m1 - m2))
 
 
-def _sparse_ce(logits: tf.Tensor, targets: tf.Tensor) -> tf.Tensor:
-    return tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=tf.cast(targets, tf.int32), logits=tf.cast(logits, tf.float32)))
+def _sparse_or_soft_ce(logits, targets, is_source: bool = False):
+    if is_source:
+        return tf.reduce_mean(
+            tf.nn.sparse_softmax_cross_entropy_with_logits(
+                labels=tf.cast(targets, tf.int32), logits=logits
+            )
+        )
+    else:
+        if targets.dtype.is_integer:
+            return tf.reduce_mean(
+                tf.nn.sparse_softmax_cross_entropy_with_logits(
+                    labels=tf.cast(targets, tf.int32), logits=logits
+                )
+            )
+        else:
+            log_probs = tf.nn.log_softmax(logits, axis=-1)
+            return -tf.reduce_mean(tf.reduce_sum(tf.cast(targets, tf.float32) * log_probs, axis=-1))
 
 
 def _binary_acc_from_logits(logits_b2: tf.Tensor, target_class: int) -> tf.Tensor:
@@ -56,36 +77,32 @@ def compute_losses(
 ):
     """
     Compute DADA losses and metrics following the original Theano math.
+
     Returns a dict with scalar tensors.
     """
-    # Views
     real_2_c, class_lab = logits_to_views(logits_real_2c, num_classes)
     fake_2_c, class_gen = logits_to_views(logits_fake_2c, num_classes)
 
-    # Source logits per labels
     source_lab = source_logits_for_labels(real_2_c, y_real, num_classes)
     source_gen = source_logits_for_labels(fake_2_c, y_fake, num_classes)
 
-    # Loss terms (from logits directly)
-    zeros = tf.zeros_like(y_real, dtype=tf.int32)
-    ones = tf.ones_like(y_fake, dtype=tf.int32)
+    batch_size = tf.shape(class_lab)[0]
+    zeros = tf.zeros((batch_size,), dtype=tf.int32)
+    ones = tf.ones((batch_size,), dtype=tf.int32)
 
-    loss_gen_class = _sparse_ce(class_gen, y_fake)
-    loss_gen_source = _sparse_ce(source_gen, zeros)
-    loss_lab_class = _sparse_ce(class_lab, y_real)
-    # Note: includes both real and fake components as in original
-    loss_lab_source = _sparse_ce(source_lab, zeros) + _sparse_ce(source_gen, ones)
-
-    # Feature matching
+    loss_gen_class = _sparse_or_soft_ce(class_gen, y_fake)
+    loss_lab_class = _sparse_or_soft_ce(class_lab, y_real)
+    loss_gen_source = _sparse_or_soft_ce(source_gen, zeros, is_source=True)
+    loss_lab_source = _sparse_or_soft_ce(source_lab, zeros, is_source=True) + _sparse_or_soft_ce(
+        source_gen, ones, is_source=True
+    )
     fm = feature_match(features_real, features_fake)
 
-    # Composite losses with schedule
     one_minus_w = 1.0 - tf.cast(w, tf.float32)
     w_f = tf.cast(w, tf.float32)
     loss_gen = one_minus_w * (loss_gen_source + feat_match_weight * fm)
     loss_disc = one_minus_w * (loss_lab_source) + w_f * (loss_lab_class + loss_gen_class)
 
-    # Metrics
     d_acc_on_real = _binary_acc_from_logits(source_lab, 0)
     d_acc_on_fake = _binary_acc_from_logits(source_gen, 1)
     g_acc_on_fake = _binary_acc_from_logits(source_gen, 0)

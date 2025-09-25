@@ -1,9 +1,6 @@
-timm
-albumentations
-foolbox
-matplotlib
-seaborn
+tensorflow>=2.12
+numpy
 scikit-learn
-tensorflow
-tensorflow-addons
 matplotlib
+
+

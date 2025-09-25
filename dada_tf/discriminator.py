@@ -1,9 +1,31 @@
+"""DADA discriminators producing 2*C logits.
+
+Includes a CNN discriminator and a transfer-learning variant with common backbones.
+"""
+
+from __future__ import annotations
+
 import tensorflow as tf
-from weightnorm_wrapper import WeightNorm
+
+from .weightnorm_wrapper import WeightNorm
 
 
 class DADADiscriminator(tf.keras.Model):
-    def __init__(self, num_classes: int, use_weight_norm: bool = True, name: str = "DADADiscriminator"):
+    """CNN discriminator outputting 2*C logits with optional weight normalization.
+
+    Parameters
+    ----------
+    num_classes : int
+        Number of classes C.
+    use_weight_norm : bool, default=True
+        Wrap eligible layers with `WeightNorm`.
+    name : str
+        Keras model name.
+    """
+
+    def __init__(
+        self, num_classes: int, use_weight_norm: bool = True, name: str = "DADADiscriminator"
+    ):
         super().__init__(name=name)
         self.num_classes = num_classes
         self.use_weight_norm = use_weight_norm
@@ -16,16 +38,20 @@ class DADADiscriminator(tf.keras.Model):
         # Block 1: 96, 96, 96 (stride 2) + Dropout
         self.conv1_1 = maybe_wn(tf.keras.layers.Conv2D(96, 3, padding="same", activation=None))
         self.conv1_2 = maybe_wn(tf.keras.layers.Conv2D(96, 3, padding="same", activation=None))
-        self.conv1_3 = maybe_wn(tf.keras.layers.Conv2D(96, 3, strides=2, padding="same", activation=None))
+        self.conv1_3 = maybe_wn(
+            tf.keras.layers.Conv2D(96, 3, strides=2, padding="same", activation=None)
+        )
         self.drop1 = tf.keras.layers.Dropout(0.5)
 
         # Block 2: 192, 192, 192 (stride 2) + Dropout
         self.conv2_1 = maybe_wn(tf.keras.layers.Conv2D(192, 3, padding="same", activation=None))
         self.conv2_2 = maybe_wn(tf.keras.layers.Conv2D(192, 3, padding="same", activation=None))
-        self.conv2_3 = maybe_wn(tf.keras.layers.Conv2D(192, 3, strides=2, padding="same", activation=None))
+        self.conv2_3 = maybe_wn(
+            tf.keras.layers.Conv2D(192, 3, strides=2, padding="same", activation=None)
+        )
         self.drop2 = tf.keras.layers.Dropout(0.5)
 
-        # Extra conv with pad=0 (valid) like original
+        # Extra conv with pad=0 (valid)
         self.conv3 = maybe_wn(tf.keras.layers.Conv2D(192, 3, padding="valid", activation=None))
 
         # NIN layers (1x1 convs)
@@ -33,11 +59,7 @@ class DADADiscriminator(tf.keras.Model):
         self.nin2 = maybe_wn(tf.keras.layers.Conv2D(192, 1, padding="valid", activation=None))
 
         self.gap = tf.keras.layers.GlobalAveragePooling2D()
-
-        # Penultimate features kept here
         self.dropout_final = tf.keras.layers.Dropout(0.0)
-
-        # Final logits: 2 * C (no activation)
         self.fc_logits = maybe_wn(tf.keras.layers.Dense(2 * num_classes, activation=None))
 
         self.act_lrelu = tf.keras.layers.LeakyReLU(0.2)
@@ -72,10 +94,8 @@ class DADADiscriminator(tf.keras.Model):
         h = self.nin2(h)
         h = self.act_lrelu(h)
 
-        # Global average pool
         features = self.gap(h)
         features = self.dropout_final(features, training=training)
-
         logits = self.fc_logits(features)
 
         if return_features:
@@ -84,7 +104,14 @@ class DADADiscriminator(tf.keras.Model):
 
 
 class TransferDisc(tf.keras.Model):
-    def __init__(self, num_classes: int, backbone_name: str = "ResNet50", name: str = "TransferDisc"):
+    """Transfer-learning discriminator with a selectable TF Keras backbone.
+
+    Produces 2*C logits. Uses backbone-specific preprocessing.
+    """
+
+    def __init__(
+        self, num_classes: int, backbone_name: str = "ResNet50", name: str = "TransferDisc"
+    ):
         super().__init__(name=name)
         self.num_classes = num_classes
         self.backbone_name = backbone_name
@@ -100,13 +127,19 @@ class TransferDisc(tf.keras.Model):
     def _build_backbone(self, name: str) -> tf.keras.Model:
         name = name.lower()
         if name == "resnet50":
-            base = tf.keras.applications.ResNet50(include_top=False, weights="imagenet", input_shape=(32, 32, 3))
+            base = tf.keras.applications.ResNet50(
+                include_top=False, weights="imagenet", input_shape=(32, 32, 3)
+            )
             self.preprocess = tf.keras.applications.resnet50.preprocess_input
         elif name == "mobilenetv2":
-            base = tf.keras.applications.MobileNetV2(include_top=False, weights="imagenet", input_shape=(32, 32, 3))
+            base = tf.keras.applications.MobileNetV2(
+                include_top=False, weights="imagenet", input_shape=(32, 32, 3)
+            )
             self.preprocess = tf.keras.applications.mobilenet_v2.preprocess_input
         elif name == "efficientnetb0" or name == "efficientnet":
-            base = tf.keras.applications.EfficientNetB0(include_top=False, weights="imagenet", input_shape=(32, 32, 3))
+            base = tf.keras.applications.EfficientNetB0(
+                include_top=False, weights="imagenet", input_shape=(32, 32, 3)
+            )
             self.preprocess = tf.keras.applications.efficientnet.preprocess_input
         else:
             raise ValueError("Unsupported transfer backbone: " + name)
@@ -115,7 +148,6 @@ class TransferDisc(tf.keras.Model):
     def call(self, x: tf.Tensor, training: bool = False, return_features: bool = False):
         h = tf.cast(x, tf.float32)
         h = self.gn(h, training=training)
-        # Use backbone-specific preprocessing to match ImageNet training distribution
         h = self.preprocess(h)
         h = self.backbone(h, training=training)
         features = self.gap(h)

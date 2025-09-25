@@ -1,4 +1,10 @@
+"""Weight normalization wrapper for Keras layers.
+
+Behavior preserved from the original utility.
+"""
+
 import tensorflow as tf
+
 
 class WeightNorm(tf.keras.layers.Wrapper):
     """
@@ -15,7 +21,6 @@ class WeightNorm(tf.keras.layers.Wrapper):
         self.built_wn = False
 
     def build(self, input_shape):
-        # Build inner layer if needed
         if not self.layer.built:
             self.layer.build(input_shape)
         if not hasattr(self.layer, "kernel"):
@@ -24,11 +29,10 @@ class WeightNorm(tf.keras.layers.Wrapper):
         k = self.layer.kernel
         k_shape = k.shape
 
-        # Determine axes
-        if len(k_shape) == 2:        # Dense: (in, out)
+        if len(k_shape) == 2:  # Dense: (in, out)
             out_axis = 1
             reduce_axes = (0,)
-        elif len(k_shape) == 4:      # Conv2D: (kh, kw, in, out) or Conv2DTranspose
+        elif len(k_shape) == 4:  # Conv2D or Conv2DTranspose
             out_axis = 3
             reduce_axes = (0, 1, 2)
             filters = getattr(self.layer, "filters", None)
@@ -41,7 +45,6 @@ class WeightNorm(tf.keras.layers.Wrapper):
         self._out_axis = out_axis
         self._reduce_axes = reduce_axes
 
-        # Trainable params: v (copy of kernel) and g (scaling)
         self.v = self.add_weight(
             name="wn_v",
             shape=k_shape,
@@ -76,13 +79,10 @@ class WeightNorm(tf.keras.layers.Wrapper):
             raise RuntimeError("WeightNorm wrapper not built.")
         w = self._compute_w()
 
-        # Dense
         if isinstance(self.layer, tf.keras.layers.Dense):
             outputs = tf.matmul(inputs, w)
             if getattr(self.layer, "use_bias", False) and self.layer.bias is not None:
                 outputs = tf.nn.bias_add(outputs, self.layer.bias)
-
-        # Conv2D
         elif isinstance(self.layer, tf.keras.layers.Conv2D):
             strides = (1,) + self.layer.strides + (1,)
             outputs = tf.nn.conv2d(
@@ -94,8 +94,6 @@ class WeightNorm(tf.keras.layers.Wrapper):
             )
             if getattr(self.layer, "use_bias", False) and self.layer.bias is not None:
                 outputs = tf.nn.bias_add(outputs, self.layer.bias)
-
-        # Conv2DTranspose
         elif isinstance(self.layer, tf.keras.layers.Conv2DTranspose):
             strides = (1,) + self.layer.strides + (1,)
             input_shape = tf.shape(inputs)
@@ -124,12 +122,9 @@ class WeightNorm(tf.keras.layers.Wrapper):
             )
             if getattr(self.layer, "use_bias", False) and self.layer.bias is not None:
                 outputs = tf.nn.bias_add(outputs, self.layer.bias)
-
         else:
             raise ValueError("Unsupported layer type for WeightNorm.")
 
-        # Apply activation if present
         if self.layer.activation is not None:
             outputs = self.layer.activation(outputs)
-
         return outputs
