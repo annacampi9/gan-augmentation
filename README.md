@@ -76,8 +76,4 @@ Determinism may vary across GPUs and TF versions; compare short-run metrics, not
 tensorboard --logdir logs
 ```
 
-## Notes
-
-This refactor does not change training logic. It only improves readability, documentation, and structure for thesis review.
-
 
